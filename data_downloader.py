@@ -40,21 +40,28 @@ def get_top_100_index():
 def get_data(Symbols, times): #TODO guardar-la
     for symbol in Symbols:
         for time in times:
-            #if time[:, 1] == 8:#todo
-            #    continue
+            if time[1] == 8:
+                for i in range(1, 5):  # El segundo valor (5) no se incluye, así que va de 1 a 4
+                    day1, day2 = calculate_time(int(time[1]), i)
+                    data = yf.download(symbol, end=day1, start=day2, interval=f"{time[0]}m")
+                    data.to_csv(f"data/{symbol}_{time[0]}m_{day1}_{day2}.csv")
+
             print(symbol, time)
-            day1, day2 = calculate_time(int(time[1])) #time must be numpy array
-            if time[0] != 7299:
+            day1, day2 = calculate_time(int(time[1]), 1) #time must be numpy array
+            if time[0] != 1440:
                 data = yf.download(symbol, end=day1.today(), start=day2, interval=f"{time[0]}m")
-                data.to_csv(f"data/{symbol}_{day1}_{day2}_{time[0]}m.csv")
+                data.to_csv(f"data/{symbol}_{time[0]}m_{day1}_{day2}.csv")
             else:
                 data = yf.download(symbol, end=day1, start=day2, interval="1d")
-                data.to_csv(f"data/{symbol}_{day1}_{day2}_1d.csv")
+                data.to_csv(f"data/{symbol}_1d_{day1}_{day2}.csv")
 
 
 
-def calculate_time(time):
-    return dt.date.today(), dt.date.today() - dt.timedelta(days=time)
+def calculate_time(time, i):
+    if i < 4:
+        return dt.date.today() - dt.timedelta(days=time*(i-1)), dt.date.today() - dt.timedelta(days=time*i)
+    else:
+        return dt.date.today() - dt.timedelta(days=time * (i - 1)), dt.date.today() - dt.timedelta(days=time * i-3)
 
 
 if __name__ == '__main__':
@@ -65,13 +72,13 @@ if __name__ == '__main__':
     symbols = symbols[:, 0]
     times = np.loadtxt("times.csv", delimiter=",", dtype=int, skiprows=1)
 
-    auxsymbols = symbols[0:2]
-    auxtimes = times[1:3]
+    #auxsymbols = symbols[0:2]
+    #auxtimes = times[1:3]
 
-    get_data(auxsymbols, auxtimes)
+    get_data(symbols, times)
 
 
-    #data = yf.download("NVDA", start="2002-01-01", end="2025-03-23", interval="1h")
+    #data = yf.download("NVDA", start="2025-02-24", end="2025-02-28", interval="1m")
     #print(data.head())
 
 
