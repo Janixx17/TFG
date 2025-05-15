@@ -1,3 +1,5 @@
-DATA/
 .venv/
-*.json
+json/
+news_articles/
+stock_data/
+*.html
