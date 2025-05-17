@@ -4,3 +4,4 @@ news_articles/
 stock_csv/top100.csv
 stock_data/
 *.html
+.idea/

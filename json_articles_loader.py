@@ -15,7 +15,7 @@ if __name__ == '__main__':
     id = 1
 
     with open("json/articles.json", "w", encoding="utf-8") as f:
-        f.write("[\n")
+        f.write("{ \"articles\": [\n")
 
     for year in range(2025, 2010,-1):
         for month in range(12,0,-1):
@@ -56,4 +56,4 @@ if __name__ == '__main__':
                     time.sleep(20)
 
     with open("json/articles.json", "a", encoding="utf-8") as f:
-        f.write("]")
+        f.write("]\n}")

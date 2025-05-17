@@ -5,6 +5,7 @@ from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 import time
 import json
+import os
 
 VALID_SAMESITE_VALUES = ["Strict", "Lax", "None"]
 
@@ -20,23 +21,15 @@ def sanitize_cookie(cookie):
             cookie["sameSite"] = same_site
     return cookie
 
-
-if __name__ == "__main__":
-
-    with open("json/articles.json", "r", encoding="utf-8") as f: #carreguem els articles
-        articles = json.load(f)
-
-
-
-    with open("json/cookies.json", "r", encoding="utf-8") as f:
-        cookies = json.load(f)
+def request_article(article, cookies):
+    id = article['id']
 
     options = Options()
-    options.add_argument("--headless")  #amagar finestra
+    options.add_argument("--headless")  # amagar finestra
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
-    driver.get("https://www.nytimes.com/2025/04/30/world/middleeast/uk-us-yemen-houthis-strikes.html")
+    driver.get(article['url'])
     time.sleep(3)
 
     for cookie in cookies:
@@ -46,7 +39,41 @@ if __name__ == "__main__":
     # Recargar ya autenticado
     time.sleep(1)
 
-    with open("noticia.html", "w", encoding="utf-8") as f:
-        f.write(driver.page_source)
+    with open(f"article{id}.html", "w", encoding="utf-8") as f:
+        f.write(BeautifulSoup(driver.page_source).prettify())
+
+    # write in the file the article not the source code
+
+    with open(f"article{id}.txt", "r", encoding="utf-8") as f:
+        if not f.read():
+            raise TypeError("Null file exception")
 
     driver.quit()
+
+
+if __name__ == "__main__":
+
+    with open("json/articles.json", "r+", encoding="utf-8") as f: #carreguem els articles
+        articles = json.load(f)
+
+    if not os.path.exists("json/cookies.csv"):
+        raise FileNotFoundError(f"L'arxiu cookies.csv no existeix.")
+
+    with open("json/cookies.json", "r", encoding="utf-8") as f:
+        cookies = json.load(f)
+
+        for article in articles['articles']:
+            if article['file'] == "":
+                article['file'] = f"article{article['id']}.txt"
+                try:
+                    request_article(article, cookies)
+                    a = 3
+                except:
+                    print("Occured an exception")
+                    time.sleep(60)
+
+                f.seek(0)
+                json.dump(articles, f, indent=4, ensure_ascii=False)
+                f.truncate()
+
+
