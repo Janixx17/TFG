@@ -7,7 +7,7 @@ https://github.com/Webhose/free-news-datasets
 # IA's
 ## FINRL https://github.com/AI4Finance-Foundation/FinRL
 
-my-trading-bot/
+Estructura principal fitxers:<br>
 ├── data/
 │   ├── utils_data_download.py  # per descarregar dades històriques
 ├── notebooks/
