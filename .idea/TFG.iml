@@ -7,7 +7,7 @@
       <excludeFolder url="file://$MODULE_DIR$/stock_data" />
       <excludeFolder url="file://$MODULE_DIR$/json" />
     </content>
-    <orderEntry type="inheritedJdk" />
+    <orderEntry type="jdk" jdkName="Python 3.13 (TFG)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>
