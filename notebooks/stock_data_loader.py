@@ -14,7 +14,7 @@ def get_top_100_index():
     sp500_df = get_simbols()
     sptop100 = []
 
-    with open("stock_csv/top100.csv", "w", newline='') as f:
+    with open("../stock_csv/top100.csv", "w", newline='') as f:
         writer = csv.writer(f)
 
         writer.writerow(["Symbol", "Weight"])

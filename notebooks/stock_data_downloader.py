@@ -75,9 +75,9 @@ def calculate_time(time, i):
 
 if __name__ == '__main__':
 
-    symbols = np.loadtxt("stock_csv/top100.csv", delimiter=",", dtype=str, skiprows=1)
+    symbols = np.loadtxt("../stock_csv/top100.csv", delimiter=",", dtype=str, skiprows=1)
     symbols = symbols[:, 0]
-    times = np.loadtxt("stock_csv/times.csv", delimiter=",", dtype=int, skiprows=1)
+    times = np.loadtxt("../stock_csv/times.csv", delimiter=",", dtype=int, skiprows=1)
 
     #auxsymbols = symbols[0:2]
     #auxtimes = times[1:3]
