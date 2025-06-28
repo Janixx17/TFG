@@ -5,7 +5,7 @@ https://www.kaggle.com/datasets/rmisra/news-category-dataset
 https://github.com/Webhose/free-news-datasets
 
 # IA's
-## FINRL https://github.com/AI4Finance-Foundation/FinRL
+## FINRL [https://github.com/AI4Finance-Foundation/FinRL](https://github.com/benstaf/FinRL_DeepSeek)
 
 Estructura principal fitxers:<br>
 ├── data/<br>
