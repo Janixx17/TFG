@@ -111,7 +111,7 @@ model = MLPActorCritic(
 
 try:
     # Cargar pesos entrenados
-    model.load_state_dict(torch.load("agent_cppo_deepseek_100_epochs_20k_steps_01.pth", map_location="cpu"))
+    model.load_state_dict(torch.load("../models/agent_cppo_deepseek_100_epochs_20k_steps_01.pth", map_location="cpu"))
     model.eval()
     print("Model loaded successfully!")
 
