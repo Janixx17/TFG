@@ -66,11 +66,11 @@ def test_deepseek_api():
         
         logger.info(f"Risk assessment for {test_symbol}: {risk}")
         
-        logger.info("✅ DeepSeek API test completed successfully!")
+        logger.info("[SUCCESS] DeepSeek API test completed successfully!")
         return True
         
     except Exception as e:
-        logger.error(f"❌ DeepSeek API test failed: {e}")
+        logger.error(f"[ERROR] DeepSeek API test failed: {e}")
         logger.info("TODO: Check your API key and network connection")
         return False
 
@@ -81,9 +81,9 @@ def main():
     success = test_deepseek_api()
     
     if success:
-        logger.info("🎉 All tests passed! You can now enable LLM features in the trading agent.")
+        logger.info("[SUCCESS] All tests passed! You can now enable LLM features in the trading agent.")
     else:
-        logger.error("❌ Tests failed. Please check the TODO items above.")
+        logger.error("[ERROR] Tests failed. Please check the TODO items above.")
     
     return success
 

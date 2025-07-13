@@ -12,19 +12,30 @@ MIN_REQUEST_INTERVAL = 1.0  # Minimum seconds between requests
 CACHE_DURATION = 300        # Cache responses for 5 minutes
 
 # LLM Feature Configuration
-ENABLE_LLM_FEATURES = False  # TODO: Set to True when API is configured
+ENABLE_LLM_FEATURES = True  # TODO: Set to True when API is configured
 MAX_TOKENS = 100            # Maximum tokens for API responses
 TEMPERATURE = 0.1           # Low temperature for consistent responses
 
 # Sentiment Analysis Prompts
-# TODO: Customize these prompts based on your requirements
-SENTIMENT_PROMPT_TEMPLATE = """
-Analyze the sentiment for stock {symbol} with the following information:
-- Current price: ${price:.2f}
-- Price change: {price_change:.2f}%
 
-Please provide a brief sentiment analysis (positive, negative, or neutral) 
-considering market conditions, recent news, and technical indicators.
+# Enhanced Sentiment Analysis Prompt with News
+SENTIMENT_PROMPT_TEMPLATE = """
+Analyze the sentiment for stock {symbol} based on the following comprehensive information:
+
+Technical Data:
+- Current Price: ${price:.2f}
+- Price Change: {price_change:.2f}%
+
+Recent News Analysis, check before if the news is relevant:
+{news_text}
+
+Instructions:
+1. Analyze the news sentiment (positive, negative, or neutral)
+2. Consider the price movement in context of the news
+3. Evaluate potential impact on future price movement
+4. Provide overall sentiment rating from one of the following: very positive/positive/neutral/negative/very negative
+
+Focus on actionable insights for trading decisions. Consider both short-term market reaction and longer-term fundamental impact.
 
 Respond with: [SENTIMENT: very positive/positive/neutral/negative/very negative]
 """

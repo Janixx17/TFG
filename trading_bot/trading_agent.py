@@ -29,7 +29,7 @@ import pandas as pd
 import yfinance as yf
 from gymnasium.spaces import Box
 from torch.distributions.normal import Normal
-from ib_insync import *
+from ib_insync import IB, Stock, MarketOrder
 import time
 import logging
 from datetime import datetime, timedelta
@@ -171,22 +171,32 @@ class DeepSeekAPIClient:
             return 0.0
     
     @lru_cache(maxsize=100)
-    def get_sentiment_analysis(self, symbol: str, current_price: float, price_change: float) -> float:
-        """Obté l'anàlisi de sentiment per a un valor"""
+    def get_sentiment_analysis(self, symbol: str, current_price: float, price_change: float, news_text: str = "") -> float:
+        """Obté l'anàlisi de sentiment per a un valor amb informació de notícies"""
         try:
-            # Comprova primer la memòria cau
-            cache_key = f"{symbol}_{int(time.time() // self.cache_duration)}"
+            # Comprova primer la memòria cau (inclou hash de notícies per evitar cau incorrecte)
+            news_hash = hash(news_text) if news_text else 0
+            cache_key = f"{symbol}_{int(time.time() // self.cache_duration)}_{news_hash}"
             if cache_key in self.sentiment_cache:
                 return self.sentiment_cache[cache_key]
             
-            # Utilitza la plantilla de prompt de configuració
-            prompt = SENTIMENT_PROMPT_TEMPLATE.format(
-                symbol=symbol,
-                price=current_price,
-                price_change=price_change
-            )
+            # Modifica la plantilla de prompt per incloure notícies
+            if news_text:
+                enhanced_prompt = SENTIMENT_PROMPT_TEMPLATE.format(
+                    symbol=symbol,
+                    price=current_price,
+                    price_change=price_change,
+                    news_text=news_text[:1500]  # Limita la longitud de les notícies
+                )
+            else:
+                # Utilitza la plantilla de prompt de configuració si no hi ha notícies
+                enhanced_prompt = SENTIMENT_PROMPT_TEMPLATE.format(
+                    symbol=symbol,
+                    price=current_price,
+                    price_change=price_change
+                )
             
-            response = self._make_request(prompt)
+            response = self._make_request(enhanced_prompt)
             sentiment_score = self._parse_sentiment_response(response)
             
             # Guarda el resultat a la memòria cau
@@ -416,6 +426,9 @@ class TradingAgent:
         self.obs_dim = 1009
         self.act_dim = 84
         
+        # Device configuration (GPU if available, otherwise CPU)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
         # Initialize components
         self.model = None
         self.ib = None
@@ -427,6 +440,12 @@ class TradingAgent:
         
         # Technical indicators
         self.tech_indicators = TechnicalIndicators()
+        
+        # News cache to avoid repeated requests
+        self.news_cache = {}
+        self.news_cache_duration = 300  # 5 minutes cache for news
+        self.last_news_request_time = 0
+        self.news_request_interval = 1.0  # 1 second between news requests
         
         # DeepSeek API client
         if self.enable_llm_features:
@@ -464,8 +483,12 @@ class TradingAgent:
                 activation=torch.nn.ReLU
             )
             
+            # Log which device we're using
+            logger.info(f"Using device: {self.device}")
+            
             # Load trained weights
-            self.model.load_state_dict(torch.load(self.model_path, map_location="cpu"))
+            self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
+            self.model.to(self.device)
             self.model.eval()
             
             logger.info("Model loaded successfully")
@@ -546,6 +569,7 @@ class TradingAgent:
                         
                         # Update current prices
                         self.current_prices[symbol] = market_data[symbol]['price']
+                        #logger.info(f"Retrieved data for {symbol}: ${market_data[symbol]['price']:.2f}")
                     else:
                         logger.warning(f"No data found for {symbol}")
                         
@@ -598,8 +622,6 @@ class TradingAgent:
             'cci': 0.0,
             'adx': 0.0,
             'bb_position': 0.5,
-            'sma_20': 0.0,
-            'sma_50': 0.0,
             'volatility': 0.02,
             'momentum': 0.0,
             'volume_ratio': 1.0
@@ -610,13 +632,16 @@ class TradingAgent:
         """
         Construct observation vector for the model
         Structure: [cash_balance, prices, holdings, tech_indicators, llm_sentiment, llm_risk]
-        Total: 1009 dimensions
+        Total: 1009 dimensions (1 + 84 + 84 + 672 + 84 + 84 = 1009)
         """
         try:
             observation = []
             
             # 1. Cash balance (normalized)
             normalized_cash = self.cash_balance / self.initial_cash
+            # Handle NaN values
+            if np.isnan(normalized_cash) or np.isinf(normalized_cash):
+                normalized_cash = 1.0  # Default to 1.0 if there's an issue
             observation.append(normalized_cash)
             
             # 2. Stock prices (84 dimensions)
@@ -624,6 +649,9 @@ class TradingAgent:
                 if symbol in market_data:
                     # Normalize price (you may want to adjust this)
                     price = market_data[symbol]['price'] / 100.0  # Simple normalization
+                    # Handle NaN values
+                    if np.isnan(price) or np.isinf(price):
+                        price = 0.0
                     observation.append(price)
                 else:
                     observation.append(0.0)
@@ -635,9 +663,9 @@ class TradingAgent:
                 normalized_holdings = holdings / 1000.0  # Adjust based on typical position sizes
                 observation.append(normalized_holdings)
             
-            # 4. Technical indicators (10 indicators × 84 stocks = 840 dimensions)
+            # 4. Technical indicators (8 indicators × 84 stocks = 672 dimensions)
             indicator_names = ['macd', 'rsi', 'cci', 'adx', 'bb_position', 
-                             'sma_20', 'sma_50', 'volatility', 'momentum', 'volume_ratio']
+                             'volatility', 'momentum', 'volume_ratio']
             
             for indicator_name in indicator_names:
                 for symbol in self.stocks_list:
@@ -652,6 +680,11 @@ class TradingAgent:
                             value = np.tanh(value)
                         elif indicator_name in ['sma_20', 'sma_50']:
                             value = value / 100.0
+                        
+                        # Handle NaN values
+                        if np.isnan(value) or np.isinf(value):
+                            value = 0.0
+                        
                         observation.append(value)
                     else:
                         observation.append(0.0)
@@ -669,13 +702,22 @@ class TradingAgent:
             # Ensure exact dimensions
             if len(observation) != self.obs_dim:
                 logger.warning(f"Observation dimension mismatch: {len(observation)} vs {self.obs_dim}")
+                logger.warning(f"Stocks count: {len(self.stocks_list)}")
+                logger.warning(f"Expected breakdown: 1 (cash) + {len(self.stocks_list)} (prices) + {len(self.stocks_list)} (holdings) + {8 * len(self.stocks_list)} (tech_indicators) + {len(self.stocks_list)} (sentiment) + {len(self.stocks_list)} (risk) = {1 + len(self.stocks_list) * 12}")
+                
                 # Pad or truncate as needed
                 if len(observation) < self.obs_dim:
                     observation.extend([0.0] * (self.obs_dim - len(observation)))
                 else:
                     observation = observation[:self.obs_dim]
             
-            return np.array(observation, dtype=np.float32)
+            # Convert to numpy array and handle any remaining NaN values
+            observation_array = np.array(observation, dtype=np.float32)
+            
+            # Replace any NaN or infinite values with 0
+            observation_array = np.nan_to_num(observation_array, nan=0.0, posinf=0.0, neginf=0.0)
+            
+            return observation_array
             
         except Exception as e:
             logger.error(f"Error constructing observation: {e}")
@@ -684,12 +726,12 @@ class TradingAgent:
     def _predict_actions(self, observation: np.ndarray) -> np.ndarray:
         """Predict trading actions using the model"""
         try:
-            obs_tensor = torch.tensor(observation).unsqueeze(0)
+            obs_tensor = torch.tensor(observation).unsqueeze(0).to(self.device)
             
             with torch.no_grad():
                 actions = self.model.act(obs_tensor)
             
-            return actions.squeeze()
+            return actions.cpu().squeeze()
             
         except Exception as e:
             logger.error(f"Error predicting actions: {e}")
@@ -725,11 +767,25 @@ class TradingAgent:
                         if trade_size > 0:
                             # Buy order
                             order = MarketOrder('BUY', trade_size)
-                            logger.info(f"Placing BUY order: {trade_size} shares of {symbol}")
+                            logger.info(f"Placing BUY order: {trade_size} shares of {symbol} (current position: {current_position})")
                         else:
-                            # Sell order
-                            order = MarketOrder('SELL', abs(trade_size))
-                            logger.info(f"Placing SELL order: {abs(trade_size)} shares of {symbol}")
+                            # Sell order - sell what we have or what we want to sell, whichever is less
+                            shares_to_sell = abs(trade_size)
+                            
+                            # Check if we have any shares to sell
+                            if current_position > 0:
+                                # Sell the minimum between what we want to sell and what we have
+                                actual_shares_to_sell = min(shares_to_sell, current_position)
+                                order = MarketOrder('SELL', actual_shares_to_sell)
+                                
+                                if actual_shares_to_sell < shares_to_sell:
+                                    logger.info(f"Placing SELL order: {actual_shares_to_sell} shares of {symbol} (wanted {shares_to_sell}, have {current_position})")
+                                else:
+                                    logger.info(f"Placing SELL order: {actual_shares_to_sell} shares of {symbol} (current position: {current_position})")
+                            else:
+                                # We don't have any shares to sell, skip this trade
+                                logger.warning(f"Cannot sell {shares_to_sell} shares of {symbol} - have {current_position} shares (no long position). Skipping trade.")
+                                continue
                         
                         # Place order
                         trade = self.ib.placeOrder(contract, order)
@@ -829,10 +885,14 @@ class TradingAgent:
                 
                 # Get sentiment analysis
                 try:
+                    # Get recent news for the stock
+                    news_text = self._get_stock_news(symbol)
+                    
                     sentiment = self.deepseek_client.get_sentiment_analysis(
                         symbol=symbol,
                         current_price=current_price,
-                        price_change=price_change
+                        price_change=price_change,
+                        news_text=news_text
                     )
                     sentiment_scores[symbol] = sentiment
                 except Exception as e:
@@ -864,6 +924,83 @@ class TradingAgent:
                 risk_scores[symbol] = 0.0
         
         return sentiment_scores, risk_scores
+
+    def _get_stock_news(self, symbol: str) -> str:
+        """Get recent news for a stock using IBKR API with caching and rate limiting"""
+        try:
+            # Check cache first
+            current_time = time.time()
+            cache_key = f"{symbol}_news"
+            
+            if cache_key in self.news_cache:
+                cached_time, cached_news = self.news_cache[cache_key]
+                if current_time - cached_time < self.news_cache_duration:
+                    return cached_news
+            
+            if not self.ib or not self.ib.isConnected():
+                logger.warning("IBKR not connected, cannot retrieve news")
+                return ""
+            
+            # Rate limiting for news requests
+            time_since_last_request = current_time - self.last_news_request_time
+            if time_since_last_request < self.news_request_interval:
+                time.sleep(self.news_request_interval - time_since_last_request)
+            
+            # Create contract for the symbol
+            from ib_insync import Stock
+            contract = Stock(symbol, 'SMART', 'USD')
+            
+            # Get contract details to get conId
+            details = self.ib.reqContractDetails(contract)
+            if not details:
+                logger.warning(f"No contract details found for {symbol}")
+                return ""
+            
+            conId = details[0].contract.conId
+            
+            # List of news providers to try (from trader_ibkr.py)
+            providers = ["DJ-RTG", "DJ-RTPRO", "BRFG", "BRFUPDN", "DJ-N"]
+            
+            # Try each provider until we find news
+            for provider_code in providers:
+                try:
+                    # Get the most recent news article
+                    news = self.ib.reqHistoricalNews(
+                        conId=conId,
+                        providerCodes=provider_code,
+                        startDateTime='',
+                        totalResults=1,
+                        endDateTime=''
+                    )
+                    
+                    self.last_news_request_time = time.time()
+                    
+                    if news:
+                        # Get the article body
+                        article_id = news[0].articleId
+                        body = self.ib.reqNewsArticle(articleId=article_id, providerCode=provider_code)
+                        
+                        # Combine headline and article text
+                        news_text = f"Headline: {news[0].headline}\n\nContent: {body.articleText}"
+                        
+                        # Cache the news
+                        self.news_cache[cache_key] = (current_time, news_text)
+                        
+                        logger.info(f"Retrieved news for {symbol} from provider {provider_code}")
+                        return news_text
+                        
+                except Exception as e:
+                    logger.debug(f"Error getting news for {symbol} from provider {provider_code}: {e}")
+                    continue
+            
+            # Cache empty result to avoid repeated failed requests
+            self.news_cache[cache_key] = (current_time, "")
+            logger.info(f"No news found for {symbol} with any provider")
+            return ""
+            
+        except Exception as e:
+            logger.error(f"Error retrieving news for {symbol}: {e}")
+            return ""
 
 def main():
     """Main function to run the trading agent"""
