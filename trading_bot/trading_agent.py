@@ -127,8 +127,6 @@ class DeepSeekAPIClient:
     def _parse_sentiment_response(self, response: str) -> float:
         """Analitza la resposta de sentiment i retorna una puntuació normalitzada"""
         try:
-            # TODO: Implementar l'anàlisi adequada basada en l'estructura del prompt
-            # Aquesta és una implementació provisional
             response_lower = response.lower()
             
             # Anàlisi simple basada en paraules clau (substituir per anàlisi adequada)
@@ -150,8 +148,6 @@ class DeepSeekAPIClient:
     def _parse_risk_response(self, response: str) -> float:
         """Analitza la resposta de risc i retorna una puntuació normalitzada"""
         try:
-            # TODO: Implementar l'anàlisi adequada basada en l'estructura del prompt
-            # Aquesta és una implementació provisional
             response_lower = response.lower()
             
             # Anàlisi simple basada en paraules clau (substituir per anàlisi adequada)
@@ -392,6 +388,76 @@ class TechnicalIndicators:
         adx = dx.rolling(window=window).mean()
         
         return adx.iloc[-1] if len(adx) > 0 else 0.0
+    
+    @staticmethod
+    def calculate_vix(close_prices, window=30):
+        """
+        Calculate VIX-like volatility index
+        Uses rolling standard deviation of returns as a proxy for VIX
+        """
+        try:
+            # Calculate daily returns
+            returns = close_prices.pct_change().dropna()
+            
+            if len(returns) < window:
+                return 0.2  # Default VIX-like value (~20%)
+            
+            # Calculate rolling volatility (annualized)
+            rolling_vol = returns.rolling(window=window).std()
+            
+            # Annualize the volatility (252 trading days per year)
+            annualized_vol = rolling_vol * np.sqrt(252)
+            
+            # Return the most recent value, scaled to VIX-like range (0-100)
+            vix_value = annualized_vol.iloc[-1] * 100
+            
+            return max(0.0, min(100.0, vix_value)) if not np.isnan(vix_value) else 20.0
+            
+        except Exception:
+            return 20.0  # Default VIX value
+    
+    @staticmethod
+    def calculate_turbulence(close_prices, window=20):
+        """
+        Calculate market turbulence index
+        Measures how much the current market state deviates from historical patterns
+        """
+        try:
+            # Calculate returns
+            returns = close_prices.pct_change().dropna()
+            
+            if len(returns) < window:
+                return 0.0
+            
+            # Calculate the covariance matrix of historical returns
+            historical_returns = returns.iloc[:-1]  # All but the most recent
+            
+            if len(historical_returns) < window:
+                return 0.0
+            
+            # Calculate mean and covariance of historical returns
+            mean_return = historical_returns.rolling(window=window).mean()
+            
+            # Current return
+            current_return = returns.iloc[-1]
+            
+            # Calculate turbulence as the Mahalanobis distance
+            # Simplified version using variance instead of full covariance matrix
+            variance = historical_returns.rolling(window=window).var()
+            
+            if len(mean_return) > 0 and len(variance) > 0:
+                recent_mean = mean_return.iloc[-1]
+                recent_var = variance.iloc[-1]
+                
+                if recent_var > 0 and not np.isnan(recent_var) and not np.isnan(recent_mean):
+                    # Mahalanobis distance (simplified for single asset)
+                    turbulence = ((current_return - recent_mean) ** 2) / recent_var
+                    return max(0.0, turbulence) if not np.isnan(turbulence) else 0.0
+            
+            return 0.0
+            
+        except Exception:
+            return 0.0
 
 class TradingAgent:
     """
@@ -601,6 +667,8 @@ class TradingAgent:
                     'cci': self.tech_indicators.calculate_cci(high_prices, low_prices, close_prices),
                     'adx': self.tech_indicators.calculate_adx(high_prices, low_prices, close_prices),
                     'bb_position': self.tech_indicators.calculate_bollinger_bands(close_prices),
+                    'vix': self.tech_indicators.calculate_vix(close_prices),
+                    'turbulence': self.tech_indicators.calculate_turbulence(close_prices),
                     'sma_20': close_prices.rolling(20).mean().iloc[-1] if len(close_prices) >= 20 else close_prices.iloc[-1],
                     'sma_50': close_prices.rolling(50).mean().iloc[-1] if len(close_prices) >= 50 else close_prices.iloc[-1],
                     'volatility': close_prices.pct_change().rolling(20).std().iloc[-1] if len(close_prices) >= 20 else 0.02,
@@ -622,6 +690,8 @@ class TradingAgent:
             'cci': 0.0,
             'adx': 0.0,
             'bb_position': 0.5,
+            'vix': 20.0,
+            'turbulence': 0.0,
             'volatility': 0.02,
             'momentum': 0.0,
             'volume_ratio': 1.0
@@ -632,7 +702,7 @@ class TradingAgent:
         """
         Construct observation vector for the model
         Structure: [cash_balance, prices, holdings, tech_indicators, llm_sentiment, llm_risk]
-        Total: 1009 dimensions (1 + 84 + 84 + 672 + 84 + 84 = 1009)
+        Total: 1177 dimensions (1 + 84 + 84 + 840 + 84 + 84 = 1177)
         """
         try:
             observation = []
@@ -663,8 +733,8 @@ class TradingAgent:
                 normalized_holdings = holdings / 1000.0  # Adjust based on typical position sizes
                 observation.append(normalized_holdings)
             
-            # 4. Technical indicators (8 indicators × 84 stocks = 672 dimensions)
-            indicator_names = ['macd', 'rsi', 'cci', 'adx', 'bb_position', 
+            # 4. Technical indicators (10 indicators × 84 stocks = 840 dimensions)
+            indicator_names = ['macd', 'rsi', 'cci', 'adx', 'bb_position', 'vix', 'turbulence',
                              'volatility', 'momentum', 'volume_ratio']
             
             for indicator_name in indicator_names:
@@ -674,6 +744,10 @@ class TradingAgent:
                         # Normalize indicators
                         if indicator_name == 'rsi':
                             value = value / 100.0
+                        elif indicator_name == 'vix':
+                            value = value / 100.0  # VIX is typically 0-100
+                        elif indicator_name == 'turbulence':
+                            value = np.tanh(value)  # Turbulence can vary widely, so use tanh
                         elif indicator_name in ['macd', 'cci', 'adx', 'momentum']:
                             value = np.tanh(value / 10.0)  # Squash to [-1, 1]
                         elif indicator_name in ['volatility', 'volume_ratio']:
@@ -703,7 +777,7 @@ class TradingAgent:
             if len(observation) != self.obs_dim:
                 logger.warning(f"Observation dimension mismatch: {len(observation)} vs {self.obs_dim}")
                 logger.warning(f"Stocks count: {len(self.stocks_list)}")
-                logger.warning(f"Expected breakdown: 1 (cash) + {len(self.stocks_list)} (prices) + {len(self.stocks_list)} (holdings) + {8 * len(self.stocks_list)} (tech_indicators) + {len(self.stocks_list)} (sentiment) + {len(self.stocks_list)} (risk) = {1 + len(self.stocks_list) * 12}")
+                logger.warning(f"Expected breakdown: 1 (cash) + {len(self.stocks_list)} (prices) + {len(self.stocks_list)} (holdings) + {10 * len(self.stocks_list)} (tech_indicators) + {len(self.stocks_list)} (sentiment) + {len(self.stocks_list)} (risk) = {1 + len(self.stocks_list) * 14}")
                 
                 # Pad or truncate as needed
                 if len(observation) < self.obs_dim:
@@ -731,7 +805,12 @@ class TradingAgent:
             with torch.no_grad():
                 actions = self.model.act(obs_tensor)
             
-            return actions.cpu().squeeze()
+            # Handle both tensor and numpy array returns
+            if isinstance(actions, torch.Tensor):
+                return actions.cpu().squeeze()
+            else:
+                # actions is already a numpy array
+                return actions.squeeze() if hasattr(actions, 'squeeze') else actions
             
         except Exception as e:
             logger.error(f"Error predicting actions: {e}")
@@ -776,12 +855,18 @@ class TradingAgent:
                             if current_position > 0:
                                 # Sell the minimum between what we want to sell and what we have
                                 actual_shares_to_sell = min(shares_to_sell, current_position)
-                                order = MarketOrder('SELL', actual_shares_to_sell)
                                 
-                                if actual_shares_to_sell < shares_to_sell:
-                                    logger.info(f"Placing SELL order: {actual_shares_to_sell} shares of {symbol} (wanted {shares_to_sell}, have {current_position})")
+                                # Only sell if we actually have shares to sell
+                                if actual_shares_to_sell > 0:
+                                    order = MarketOrder('SELL', actual_shares_to_sell)
+                                    
+                                    if actual_shares_to_sell < shares_to_sell:
+                                        logger.info(f"Placing SELL order: {actual_shares_to_sell} shares of {symbol} (wanted {shares_to_sell}, have {current_position})")
+                                    else:
+                                        logger.info(f"Placing SELL order: {actual_shares_to_sell} shares of {symbol} (current position: {current_position})")
                                 else:
-                                    logger.info(f"Placing SELL order: {actual_shares_to_sell} shares of {symbol} (current position: {current_position})")
+                                    logger.warning(f"Cannot sell - no shares available for {symbol}")
+                                    continue
                             else:
                                 # We don't have any shares to sell, skip this trade
                                 logger.warning(f"Cannot sell {shares_to_sell} shares of {symbol} - have {current_position} shares (no long position). Skipping trade.")
