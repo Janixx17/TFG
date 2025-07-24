@@ -104,7 +104,7 @@ class DeepSeekAPIClient:
             }
             
             response = requests.post(
-                f"{self.base_url}/v1/chat/completions",  # TODO: Utilitzar l'endpoint correcte
+                f"{self.base_url}/v1/chat/completions", 
                 headers=self.headers,
                 json=payload,
                 timeout=30
@@ -280,13 +280,13 @@ class MLPCritic(nn.Module):
         layers = []
         for i in range(len(sizes)-1):
             layers.append(nn.Linear(sizes[i], sizes[i+1]))
-            if i < len(sizes)-2:  # Don't add activation after last layer
+            if i < len(sizes)-2:  
                 layers.append(activation())
         
         self.v_net = nn.Sequential(*layers)
 
     def forward(self, obs):
-        return torch.squeeze(self.v_net(obs), -1) # Critical to ensure v has right shape.
+        return torch.squeeze(self.v_net(obs), -1)
 
 class MLPActorCritic(nn.Module):
     """
@@ -745,9 +745,9 @@ class TradingAgent:
                         if indicator_name == 'rsi':
                             value = value / 100.0
                         elif indicator_name == 'vix':
-                            value = value / 100.0  # VIX is typically 0-100
+                            value = value / 100.0  
                         elif indicator_name == 'turbulence':
-                            value = np.tanh(value)  # Turbulence can vary widely, so use tanh
+                            value = np.tanh(value)  
                         elif indicator_name in ['macd', 'cci', 'adx', 'momentum']:
                             value = np.tanh(value / 10.0)  # Squash to [-1, 1]
                         elif indicator_name in ['volatility', 'volume_ratio']:
@@ -763,12 +763,12 @@ class TradingAgent:
                     else:
                         observation.append(0.0)
             
-            # 5. LLM sentiment (84 dimensions) - now using actual DeepSeek API
+            # 5. LLM sentiment (84 dimensions)
             for symbol in self.stocks_list:
                 sentiment = sentiment_scores.get(symbol, 0.0)
                 observation.append(sentiment)
             
-            # 6. LLM risk (84 dimensions) - now using actual DeepSeek API
+            # 6. LLM risk (84 dimensions)
             for symbol in self.stocks_list:
                 risk = risk_scores.get(symbol, 0.0)
                 observation.append(risk)
